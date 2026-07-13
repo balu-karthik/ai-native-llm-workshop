@@ -1,5 +1,4 @@
-"""
-Cove support desk — the shared world for all seven technique demos.
+"""Cove support desk — the shared world for all seven technique demos.
 --------------------------------------------------------------------
 One fictional company, one messy ticket, one rule book, one set of tools.
 Every technique file imports from here, so the *scenario* stays identical and
@@ -9,17 +8,20 @@ technique isolated from domain.
 Cove is a fictional online store with a mobile app. Any resemblance to a real
 company is coincidental.
 
-Run any demo with:  export ANTHROPIC_API_KEY=sk-...   then   python zero_shot.py
+Run any demo with: export GEMINI_API_KEY=AIzaSy... then python zero_shot.py
 """
 
-import os
+import dotenv
+dotenv.load_dotenv()  # Load GEMINI_API_KEY from .env file
 import json
+from google import genai
+from google.genai import types
 
-from anthropic import Anthropic
+# Initialize the Gemini Client (automatically pulls GEMINI_API_KEY from environment)
+client = genai.Client()
 
-client = Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-MODEL = "claude-haiku-4-5"   # current low-cost tier ($1/$5 per MTok); swap freely
-
+# Recommended low-cost/fast tier model (e.g., gemini-2.5-flash)
+MODEL = "gemini-flash-latest" 
 COMPANY = "Cove"
 
 # The fixed label set for triage.
@@ -36,25 +38,28 @@ TICKET = (
 # The rule book (used by the chain-of-thought and ReAct demos).
 REFUND_POLICY = """Cove refund rules:
 - An order that was charged but never shipped is refunded in full (item + shipping).
-- A shipped order that is returned: refund the ITEM price minus a 10% restocking
-  fee; shipping is non-refundable.
-- For a confirmed app fault affecting the customer, add a one-time $10 goodwill
-  credit (once, not per order)."""
+- A shipped order that is returned: refund the ITEM price minus a 10% restocking fee; shipping is non-refundable.
+- For a confirmed app fault affecting the customer, add a one-time $10 goodwill credit (once, not per order)."""
 
 
-def ask(prompt: str, system: str | None = None,
-        temperature: float = 0.0, max_tokens: int = 1024) -> str:
-    """One call to the model. Every demo routes through this so the shape of an
+def ask(prompt: str, system: str | None = None, temperature: float = 0.0, max_tokens: int = 1024) -> str:
+    """One call to the model. Every demo routes through this so the shape of an 
     API call is identical everywhere — only the prompt (and a few knobs) change."""
-    kwargs = dict(
-        model=MODEL,
-        max_tokens=max_tokens,
+    
+    # Configure parameters using GenerateContentConfig
+    config = types.GenerateContentConfig(
         temperature=temperature,
-        messages=[{"role": "user", "content": prompt}],
+        max_output_tokens=max_tokens,
+        system_instruction=system  # System prompt mapping
     )
-    if system:
-        kwargs["system"] = system
-    return client.messages.create(**kwargs).content[0].text
+    
+    response = client.models.generate_content(
+        model=MODEL,
+        contents=prompt,
+        config=config,
+    )
+    
+    return response.text
 
 
 # ---- Tool stubs (used only by the ReAct demo) --------------------------------
@@ -65,20 +70,16 @@ _ORDERS = {
     "4472": {"status": "charged_and_shipped", "item": 130, "shipping": 18},
 }
 _CUSTOMERS = {
-    "sarah@example.com": {"name": "Sarah", "customer_since": 2019,
-                          "orders": ["4471", "4472"]},
+    "sarah@example.com": {"name": "Sarah", "customer_since": 2019, "orders": ["4471", "4472"]},
 }
-
 
 def get_customer(email: str) -> str:
     c = _CUSTOMERS.get(email)
     return json.dumps(c) if c else f"No customer found for {email}"
 
-
 def get_order(order_id: str) -> str:
     o = _ORDERS.get(str(order_id))
     return json.dumps(o) if o else f"No order found: {order_id}"
-
 
 def get_refund_policy() -> str:
     return REFUND_POLICY
